@@ -1,0 +1,12 @@
+{
+  "device_query": "/dev/input/event7",
+  "override_device_query": "/dev/input/event6",
+  "override_keys": [16, 17, 18],
+  "left_bind": 272,
+  "right_bind": 273,
+  "lock_unlock_bind": null,
+  "hold": true,
+  "grab": true,
+  "cooldown": 25,
+  "cooldown_press_release": 78
+} 

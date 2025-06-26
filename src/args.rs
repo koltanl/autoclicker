@@ -8,6 +8,16 @@ pub enum Command {
         #[arg(short = 'd')]
         device_query: String,
 
+        /// Override device name or path that pauses autoclicking when specific keys are pressed
+        /// When the first character is `/`, it's treated as a path
+        #[arg(short = 'o')]
+        override_device_query: Option<String>,
+
+        /// Override key codes that pause autoclicking when pressed (can be specified multiple times)
+        /// Example: --override-key 1 --override-key 59 (for Escape and F1)
+        #[arg(long = "override-key")]
+        override_keys: Vec<u16>,
+
         /// Bind left autoclicker to keycode
         /// Mouse: 275 ButtonSide
         /// Keyboard: 26 LeftBrace
@@ -57,6 +67,12 @@ pub enum Command {
         #[arg(short = 'C', default_value_t = 0)]
         cooldown_press_release: u64,
     },
+    /// Load configuration from a JSON file
+    Config {
+        /// Path to the configuration file
+        #[arg(short, long, default_value = "theclicker.json")]
+        file: String,
+    },
 }
 
 #[derive(Parser, Debug)]
@@ -68,6 +84,10 @@ pub struct Args {
     /// For not beeping when the autoclicker state is changed
     #[arg(long, default_value_t = false)]
     pub beep: bool,
+
+    /// Save current configuration to a JSON file after interactive setup
+    #[arg(long)]
+    pub save_config: Option<String>,
 
     #[command(subcommand)]
     pub command: Option<Command>,
