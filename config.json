@@ -1,0 +1,15 @@
+{
+  "debug": false,
+  "beep": false,
+  "command": {
+    "type": "Run",
+    "device_query": "/dev/input/event7",
+    "left_bind": 272,
+    "right_bind": 273,
+    "lock_unlock_bind": 274,
+    "hold": true,
+    "grab": true,
+    "cooldown": 25,
+    "cooldown_press_release": 111
+  }
+} 

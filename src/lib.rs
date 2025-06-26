@@ -1,10 +1,10 @@
 mod args;
 mod device;
 
-pub use args::Args;
+pub use args::{Args, Config, ConfigCommand};
 
 use std::{
-    io::{stdout, IsTerminal, Write},
+    io::{stdout, BufRead, IsTerminal, Write},
     os::fd::AsRawFd,
     path::PathBuf,
     sync::{mpsc, Arc},
@@ -82,6 +82,17 @@ impl StateNormal {
                     println!("Event: {:?}", event);
                 }
 
+                // Enhanced logging for mouse movement events
+                if debug && event.type_ as i32 == input_linux::sys::EV_REL {
+                    match event.code as i32 {
+                        input_linux::sys::REL_X => println!("  -> Mouse X movement: {}", event.value),
+                        input_linux::sys::REL_Y => println!("  -> Mouse Y movement: {}", event.value),
+                        input_linux::sys::REL_WHEEL => println!("  -> Mouse wheel: {}", event.value),
+                        input_linux::sys::REL_HWHEEL => println!("  -> Mouse horizontal wheel: {}", event.value),
+                        _ => println!("  -> Other relative event: code={}, value={}", event.code, event.value),
+                    }
+                }
+
                 let mut used = false;
                 let old_state = state;
 
@@ -115,9 +126,18 @@ impl StateNormal {
                 }
 
                 if grab && !used {
+                    if debug {
+                        println!("  -> Forwarding event to virtual device: type={}, code={}, value={}", 
+                                event.type_, event.code, event.value);
+                    }
                     output
                         .write(&events)
                         .expect("Cannot write to virtual device!");
+                } else if grab && used && debug {
+                    println!("  -> Event consumed by autoclicker (not forwarded): type={}, code={}, value={}", 
+                            event.type_, event.code, event.value);
+                } else if !grab && debug {
+                    println!("  -> Grab disabled, event handled by system");
                 }
             }
         });
@@ -285,6 +305,8 @@ impl TheClicker {
             debug,
             beep,
             command,
+            config: _,
+            default: _,
         }: Args,
     ) -> Self {
         let output = OutputDevice::uinput_open(PathBuf::from("/dev/uinput"), "TheClicker").unwrap();
@@ -329,11 +351,21 @@ impl TheClicker {
                 }
 
                 if grab {
+                    if debug {
+                        println!("Setting up virtual device with grab mode enabled");
+                        println!("Copying attributes from input device: {}", input.name);
+                    }
                     output.copy_attributes(debug, &input);
                     input.grab(true).expect("Cannot grab input device!");
+                    if debug {
+                        println!("Successfully grabbed input device: {}", input.path.display());
+                    }
                 }
 
                 output.create();
+                if debug {
+                    println!("Virtual output device created");
+                }
 
                 Self {
                     shared: Shared {
@@ -447,7 +479,7 @@ fn command_from_user_input() -> args::Command {
 
     let legacy = input_device.filename.starts_with("mouse");
 
-    if legacy {
+    let command = if legacy {
         eprintln!("\x1B[1;31mUsing legacy interface for PS/2 device\x1B[0;39m");
         let cooldown = choose_usize("Choose cooldown, the min is 25", Some(25)) as u64;
         let cooldown_press_release =
@@ -493,7 +525,53 @@ fn command_from_user_input() -> args::Command {
             cooldown_press_release,
             device_query: input_device.path.to_str().unwrap().to_owned(),
         }
+    };
+
+    // Offer to save configuration
+    if choose_yes("Do you want to save this configuration to a file?", false) {
+        let config_path = choose_string("Enter the path for the config file", Some("config.json".to_string()));
+        let config = Config {
+            debug: false,
+            beep: false,
+            command: match &command {
+                args::Command::Run {
+                    device_query,
+                    left_bind,
+                    right_bind,
+                    lock_unlock_bind,
+                    hold,
+                    grab,
+                    cooldown,
+                    cooldown_press_release,
+                } => ConfigCommand::Run {
+                    device_query: device_query.clone(),
+                    left_bind: *left_bind,
+                    right_bind: *right_bind,
+                    lock_unlock_bind: *lock_unlock_bind,
+                    hold: *hold,
+                    grab: *grab,
+                    cooldown: *cooldown,
+                    cooldown_press_release: *cooldown_press_release,
+                },
+                args::Command::RunLegacy {
+                    device_query,
+                    cooldown,
+                    cooldown_press_release,
+                } => ConfigCommand::RunLegacy {
+                    device_query: device_query.clone(),
+                    cooldown: *cooldown,
+                    cooldown_press_release: *cooldown_press_release,
+                },
+            },
+        };
+
+        match config.save_to_file(&PathBuf::from(&config_path)) {
+            Ok(()) => println!("\x1B[1;32mConfiguration saved to {}\x1B[0;39m", config_path),
+            Err(e) => eprintln!("\x1B[1;31mError saving configuration: {}\x1B[0;39m", e),
+        }
     }
+
+    command
 }
 
 fn choose_key(input_device: &InputDevice, name: &str) -> u16 {
@@ -537,7 +615,9 @@ fn choose_yes(message: impl std::fmt::Display, default: bool) -> bool {
     print!("-> ");
     _ = std::io::stdout().flush();
 
-    let response = std::io::stdin()
+    let stdin = std::io::stdin();
+    let response = stdin
+        .lock()
         .lines()
         .next()
         .expect("Cannot read from stdin")
@@ -578,5 +658,37 @@ fn choose_usize(message: impl std::fmt::Display, default: Option<usize>) -> usiz
         };
 
         return num;
+    }
+}
+
+fn choose_string(message: impl std::fmt::Display, default: Option<String>) -> String {
+    print!(
+        "\x1B[1;39m{message} {} \x1B[1;32m",
+        if let Some(ref default) = default {
+            format!("[\x1B[1;32m{}\x1B[0;39m]\x1B[0;39m:", default)
+        } else {
+            "->".to_owned()
+        }
+    );
+    _ = std::io::stdout().flush();
+    let stdin = std::io::stdin();
+    let response = stdin
+        .lock()
+        .lines()
+        .next()
+        .expect("Cannot read from stdin")
+        .expect("Cannot read from stdin")
+        .trim()
+        .to_string();
+    print!("\x1B[0;39m");
+    _ = std::io::stdout().flush();
+
+    if response.is_empty() {
+        default.unwrap_or_else(|| {
+            eprintln!("No default provided and empty input given!");
+            std::process::exit(1);
+        })
+    } else {
+        response
     }
 }
