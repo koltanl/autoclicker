@@ -6,7 +6,7 @@
     "device_query": "/dev/input/event7",
     "left_bind": 272,
     "right_bind": 273,
-    "lock_unlock_bind": 274,
+    "lock_unlock_bind": 276,
     "hold": true,
     "grab": true,
     "cooldown": 25,
