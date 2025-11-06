@@ -126,12 +126,37 @@ impl StateNormal {
                 }
 
                 if grab && !used {
+                    // Scale down mouse movement events to mitigate 4x multiplication
+                    // Only apply scaling to movements above threshold to preserve micro movements
+                    let mut scaled_event = *event;
+                    if event.type_ as i32 == input_linux::sys::EV_REL {
+                        match event.code as i32 {
+                            input_linux::sys::REL_X | input_linux::sys::REL_Y => {
+                                const THRESHOLD: i32 = 2; // Only scale movements >= 2
+                                let abs_value = event.value.abs();
+                                if abs_value >= THRESHOLD {
+                                    // Divide by 2 to reduce from 4x to 2x (change to 4 for 1x)
+                                    scaled_event.value = event.value / 2;
+                                    if debug {
+                                        println!("  -> Scaled mouse movement: {} -> {} (threshold: {})", 
+                                                event.value, scaled_event.value, THRESHOLD);
+                                    }
+                                } else if debug {
+                                    println!("  -> Preserving micro movement: {} (below threshold: {})", 
+                                            event.value, THRESHOLD);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    
                     if debug {
                         println!("  -> Forwarding event to virtual device: type={}, code={}, value={}", 
-                                event.type_, event.code, event.value);
+                                scaled_event.type_, scaled_event.code, scaled_event.value);
                     }
+                    let scaled_events = [scaled_event];
                     output
-                        .write(&events)
+                        .write(&scaled_events)
                         .expect("Cannot write to virtual device!");
                 } else if grab && used && debug {
                     println!("  -> Event consumed by autoclicker (not forwarded): type={}, code={}, value={}", 

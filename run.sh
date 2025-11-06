@@ -17,6 +17,7 @@ Options:
     -c <path>    Set config location for config.json
     -cd          Use default config.json from repo root
     -i           Run in interactive mode
+    -r, --rebuild Force rebuild of the binary
     -h, --help   Show this help message
 
 Examples:
@@ -25,12 +26,14 @@ Examples:
     $0 -c /path/to/config.json
     $0 -i                 # Run in interactive mode
     $0 -cd -i             # Use default config and run interactively
+    $0 -r                 # Force rebuild and run
+    $0 -r -cd             # Force rebuild and use default config
 EOF
 }
 
-# Build the binary if it doesn't exist
-if [ ! -f "$BINARY_PATH" ]; then
-    echo "Binary not found. Building release binary..."
+# Function to build the binary
+build_binary() {
+    echo "Building release binary..."
     if ! command -v cargo >/dev/null 2>&1; then
         echo "Error: cargo not found. Please install Rust toolchain or build manually."
         exit 1
@@ -40,12 +43,13 @@ if [ ! -f "$BINARY_PATH" ]; then
         echo "Error: Build failed."
         exit 1
     fi
-fi
+}
 
 # Parse arguments
 CONFIG_ARG=""
 DEFAULT_CONFIG=false
 INTERACTIVE=false
+REBUILD=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -70,6 +74,10 @@ while [ $# -gt 0 ]; do
             INTERACTIVE=true
             shift
             ;;
+        -r|--rebuild)
+            REBUILD=true
+            shift
+            ;;
         *)
             echo "Error: Unknown option: $1"
             show_help
@@ -78,8 +86,16 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Build the binary if rebuild is requested or if it doesn't exist
+if [ "$REBUILD" = true ] || [ ! -f "$BINARY_PATH" ]; then
+    if [ "$REBUILD" = true ] && [ -f "$BINARY_PATH" ]; then
+        echo "Rebuild requested. Rebuilding..."
+    fi
+    build_binary
+fi
+
 # If no arguments provided, show help
-if [ -z "$CONFIG_ARG" ] && [ "$DEFAULT_CONFIG" = false ] && [ "$INTERACTIVE" = false ]; then
+if [ -z "$CONFIG_ARG" ] && [ "$DEFAULT_CONFIG" = false ] && [ "$INTERACTIVE" = false ] && [ "$REBUILD" = false ]; then
     show_help
     exit 0
 fi
