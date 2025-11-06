@@ -126,24 +126,43 @@ impl StateNormal {
                 }
 
                 if grab && !used {
-                    // Scale down mouse movement events to mitigate 4x multiplication
-                    // Only apply scaling to movements above threshold to preserve micro movements
+                    // Use smooth linear interpolation for gradual scaling
                     let mut scaled_event = *event;
                     if event.type_ as i32 == input_linux::sys::EV_REL {
                         match event.code as i32 {
                             input_linux::sys::REL_X | input_linux::sys::REL_Y => {
-                                const THRESHOLD: i32 = 2; // Only scale movements >= 2
+                                // Global dampening multiplier - increase to apply more scaling/reduction
+                                // 1.0 = no global adjustment, 1.25 = 25% more dampening, etc.
+                                const DAMPENING_MULTIPLIER: f64 = 1.1;
+                                
                                 let abs_value = event.value.abs();
-                                if abs_value >= THRESHOLD {
-                                    // Divide by 2 to reduce from 4x to 2x (change to 4 for 1x)
-                                    scaled_event.value = event.value / 2;
+                                
+                                if abs_value <= 1 {
+                                    // Preserve very small movements - completely raw, no scaling
+                                } else {
+                                    // Progressive scaling: scale factor increases from 1.0 to 2.0
+                                    // Start scaling immediately after 1, gradually increase to 1.5 at 4
+                                    let base_scale_factor = if abs_value <= 4 {
+                                        // Linear interpolation from 1.0 (at value 1) to 1.5 (at value 4)
+                                        // Formula: 1.0 + (abs_value - 1) * (1.5 - 1.0) / (4 - 1)
+                                        // Simplified: 1.0 + (abs_value - 1) * 0.1667
+                                        1.0 + (abs_value - 1) as f64 * (0.5 / 3.0)  // 1.0 to 1.5 over range 1-4
+                                    } else if abs_value <= 8 {
+                                        // Continue from 1.5 (at value 4) to 2.0 (at value 8)
+                                        1.5 + (abs_value - 4) as f64 * 0.125  // 1.5 to 2.0
+                                    } else {
+                                        2.0  // Full scaling for large movements
+                                    };
+                                    
+                                    // Apply global dampening multiplier
+                                    let scale_factor = base_scale_factor * DAMPENING_MULTIPLIER;
+                                    
+                                    scaled_event.value = (event.value as f64 / scale_factor) as i32;
+                                    
                                     if debug {
-                                        println!("  -> Scaled mouse movement: {} -> {} (threshold: {})", 
-                                                event.value, scaled_event.value, THRESHOLD);
+                                        println!("  -> Scaled mouse movement: {} -> {} (factor: {:.2})", 
+                                                event.value, scaled_event.value, scale_factor);
                                     }
-                                } else if debug {
-                                    println!("  -> Preserving micro movement: {} (below threshold: {})", 
-                                            event.value, THRESHOLD);
                                 }
                             }
                             _ => {}
